@@ -1,0 +1,21 @@
+# Her gönderimde kodun hatasız derlendiğini kontrol eder.
+name: Kontrol
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m py_compile yansit.py
+      - name: Sürüm CHANGELOG'da var mı?
+        run: |
+          v=$(python -c "import re;print(re.search(r'__version__\s*=\s*\"([^\"]+)\"',open('yansit.py',encoding='utf-8').read()).group(1))")
+          grep -q "## \[$v\]" CHANGELOG.md || { echo "CHANGELOG.md içinde [$v] bölümü yok"; exit 1; }

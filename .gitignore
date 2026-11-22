@@ -1,0 +1,10 @@
+# indirilen scrcpy ve kullanıcı ayarları
+scrcpy/
+ayarlar.json
+# derleme çıktıları
+build/
+dist/
+*.spec
+*.exe
+__pycache__/
+*.pyc
