@@ -56,6 +56,11 @@ jobs:
           text = open("CHANGELOG.md", encoding="utf-8").read()
           m = re.search(rf"## \[{re.escape(tag)}\][^\n]*\n(.*?)(?=\n## \[|\n\[|\Z)", text, re.S)
           body = (m.group(1).strip() if m else "Ayrıntılar için CHANGELOG.md dosyasına bakın.")
+          raw = f"https://raw.githubusercontent.com/{os.environ['GITHUB_REPOSITORY']}/{os.environ['GITHUB_SHA']}/docs/"
+          imgs = (f'<p align="center"><img src="{raw}baglanti-koyu.png" width="760" alt="Yansıt"></p>\n\n'
+                  f'<table><tr><td><img src="{raw}baglanti-acik.png" alt="Açık tema"></td>'
+                  f'<td><img src="{raw}ayarlar-koyu.png" alt="Ayarlar"></td></tr></table>\n\n')
+          body = imgs + body
           body += "\n\n---\n**İndirme:** `Yansit.exe` dosyasını indirip çalıştırın (Python gerekmez)."
           open("notes.md", "w", encoding="utf-8").write(body)
 
