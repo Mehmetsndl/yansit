@@ -22,33 +22,79 @@ import tempfile
 import threading
 import time
 import urllib.request
+import platform
+import tarfile
 import wave
 import webbrowser
 import zipfile
-import tkinter as tk
+
+try:
+    import tkinter as tk
+    from tkinter import font as tkfont
+except ImportError:
+    sys.exit("Tkinter bulunamadı.\n  Fedora:  sudo dnf install python3-tkinter\n"
+             "  Ubuntu/Debian:  sudo apt install python3-tk")
 
 try:
     import customtkinter as ctk
 except ImportError:  # ilk çalıştırmada otomatik kur
     subprocess.run([sys.executable.replace("pythonw.exe", "python.exe"), "-m", "pip", "install",
                     "--quiet", "customtkinter", "segno"])
-    import customtkinter as ctk
+    try:
+        import customtkinter as ctk
+    except ImportError:
+        sys.exit("customtkinter kurulamadı. Elle kurun:  python3 -m pip install --user customtkinter segno")
 
 APP_NAME = "Yansıt"
-__version__ = "3.0.0"
+__version__ = "3.1.0"
 VERSION = __version__
 GITHUB_REPO = "Mehmetsndl/yansit"
 RELEASES_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
+IS_WIN = os.name == "nt"
+IS_MAC = sys.platform == "darwin"
+IS_LINUX = sys.platform.startswith("linux")
+NO_WINDOW = subprocess.CREATE_NO_WINDOW if IS_WIN else 0
+
 if getattr(sys, "frozen", False):
     APP_DIR = os.path.dirname(sys.executable)
+    RES_DIR = getattr(sys, "_MEIPASS", APP_DIR)      # PyInstaller'ın paketlediği dosyalar
 else:
     APP_DIR = os.path.dirname(os.path.abspath(__file__))
+    RES_DIR = APP_DIR
 
-SCRCPY_DIR = os.path.join(APP_DIR, "scrcpy")
-CONFIG_PATH = os.path.join(APP_DIR, "ayarlar.json")
-IS_WIN = os.name == "nt"
-NO_WINDOW = subprocess.CREATE_NO_WINDOW if IS_WIN else 0
-FONT = "Segoe UI" if IS_WIN else "DejaVu Sans"
+if IS_WIN:
+    # Windows: taşınabilir — her şey exe'nin yanında
+    DATA_DIR = CONF_DIR = APP_DIR
+else:
+    # Linux/macOS: XDG standart klasörleri
+    CONF_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "yansit")
+    DATA_DIR = os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "yansit")
+    os.makedirs(CONF_DIR, exist_ok=True)
+    os.makedirs(DATA_DIR, exist_ok=True)
+SCRCPY_DIR = os.path.join(DATA_DIR, "scrcpy")
+CONFIG_PATH = os.path.join(CONF_DIR, "ayarlar.json")
+ICON_PATH = os.path.join(RES_DIR, "assets", "yansit.png")
+
+FONT = "Segoe UI" if IS_WIN else "DejaVu Sans"     # Linux'ta açılışta kurulu fonta göre seçilir
+MONO = "Consolas" if IS_WIN else "DejaVu Sans Mono"
+
+# Linux'ta Tk renkli emoji fontlarıyla (Noto Color Emoji) çökebilir → düz simgeler kullan
+if IS_WIN:
+    IC = {"logo": "◩", "conn": "📡", "settings": "⚙", "log": "📜", "phone": "📱", "qr": "📷", "audio": "🔊"}
+else:
+    IC = {"logo": "◩", "conn": "⇄", "settings": "◎", "log": "☰", "phone": "▯", "qr": "▦", "audio": "♪"}
+
+
+def scrcpy_asset_pattern():
+    """Bu işletim sistemi için scrcpy'nin GitHub sürüm dosyası."""
+    arch = platform.machine().lower()
+    if IS_WIN:
+        return r"scrcpy-win64-.*\.zip$"
+    if IS_LINUX and arch in ("x86_64", "amd64"):
+        return r"scrcpy-linux-x86_64-.*\.tar\.gz$"
+    if IS_MAC:
+        return r"scrcpy-macos-aarch64-.*\.tar\.gz$" if arch in ("arm64", "aarch64") else r"scrcpy-macos-x86_64-.*\.tar\.gz$"
+    return None
 
 # ----------------------------------------------------------------- renkler (açık, koyu)
 ACCENT = ("#6D5DFC", "#7C6CFF")
@@ -328,7 +374,8 @@ class Sfx:
                 import winsound
                 winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
             else:
-                player = shutil.which("paplay") or shutil.which("aplay") or shutil.which("afplay")
+                player = (shutil.which("pw-play") or shutil.which("paplay") or shutil.which("aplay")
+                          or shutil.which("afplay"))
                 if player:
                     subprocess.Popen([player, path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except Exception:
@@ -341,9 +388,11 @@ class DeviceCard(ctk.CTkFrame):
         super().__init__(master, fg_color=CARD2, corner_radius=12, border_width=1, border_color=BORDER)
         self.app, self.key = app, key
         self.columnconfigure(1, weight=1)
-        self.icon = ctk.CTkLabel(self, text="📱", width=44, height=44, corner_radius=10, fg_color=CARD,
-                                 font=ctk.CTkFont(FONT, 20))
+        self.state = None
+        # telefon simgesi: fonttan bağımsız, elle çizilir
+        self.icon = tk.Canvas(self, width=44, height=44, highlightthickness=0, bg=mc(CARD2))
         self.icon.grid(row=0, column=0, rowspan=2, padx=(12, 10), pady=10)
+        self._draw_icon()
         self.name = ctk.CTkLabel(self, text="", anchor="w", font=ctk.CTkFont(FONT, 14, "bold"), text_color=TEXT)
         self.name.grid(row=0, column=1, sticky="sw", pady=(10, 0))
         self.addr = ctk.CTkLabel(self, text="", anchor="w", font=ctk.CTkFont(FONT, 12), text_color=MUTED)
@@ -359,12 +408,25 @@ class DeviceCard(ctk.CTkFrame):
             w.bind("<Leave>", lambda e: self._hover(False))
             w.bind("<Double-1>", lambda e: self._action())
 
+    def _draw_icon(self):
+        c = self.icon
+        c.configure(bg=mc(CARD2))
+        c.delete("all")
+        r, w = 10, 44
+        pts = [r, 0, w - r, 0, w, 0, w, r, w, w - r, w, w, w - r, w, r, w, 0, w, 0, w - r, 0, r, 0, 0]
+        c.create_polygon(pts, smooth=True, fill=mc(CARD), outline="")
+        col = mc(GREEN if self.state == "connected" else ACCENT if self.state == "ready" else AMBER)
+        c.create_rectangle(15, 9, 29, 35, outline=col, width=2)
+        c.create_line(20, 31, 24, 31, fill=col, width=2)
+
     def update_info(self, label, addr, state):
         self.name.configure(text=label)
         self.addr.configure(text=addr)
         if state == self.state:
+            self._draw_icon()   # tema değişmiş olabilir
             return
         self.state = state
+        self._draw_icon()
         if state == "connected":
             self.pill.configure(text="  ● Bağlı  ", fg_color=PILL_OK, text_color=GREEN)
             self.btn.configure(text="Seç", fg_color=CARD, hover_color=BORDER, text_color=TEXT)
@@ -543,10 +605,12 @@ class App(ctk.CTk):
     def __init__(self):
         self.cfg = load_cfg()
         ctk.set_appearance_mode("dark" if self.cfg["theme"] == "Koyu" else "light")
-        super().__init__(fg_color=BG)
+        # className: Linux'ta pencere sınıfı (WM_CLASS) → .desktop dosyasıyla eşleşir
+        super().__init__(fg_color=BG, className="Yansit")
         self.title(APP_NAME)
         self.geometry("1060x780")
         self.minsize(1000, 740)
+        self._setup_fonts_and_icon()
         self.sfx = Sfx()
         self.sfx.enabled = self.cfg["sfx"]
         self.log_q = queue.Queue()
@@ -574,6 +638,21 @@ class App(ctk.CTk):
         self.after(300, self.check_scrcpy)
         self.after(2500, lambda: self.bg(self._check_update))
         self.protocol("WM_DELETE_WINDOW", self.on_close)
+
+    def _setup_fonts_and_icon(self):
+        global FONT, MONO
+        if not IS_WIN:
+            fams = set(tkfont.families(self))
+            FONT = next((f for f in ("Inter", "Noto Sans", "Cantarell", "Ubuntu", "DejaVu Sans",
+                                     "Liberation Sans") if f in fams), FONT)
+            MONO = next((f for f in ("JetBrains Mono", "Noto Sans Mono", "DejaVu Sans Mono",
+                                     "Liberation Mono") if f in fams), MONO)
+        try:
+            if os.path.exists(ICON_PATH):
+                self._icon_img = tk.PhotoImage(file=ICON_PATH)
+                self.iconphoto(True, self._icon_img)
+        except tk.TclError:
+            pass
 
     # ================= animasyon motoru
     def animate(self, ms, fn, done=None, ease=ease_out):
@@ -680,7 +759,7 @@ class App(ctk.CTk):
 
         logo = ctk.CTkFrame(sb, fg_color="transparent")
         logo.pack(fill="x", padx=18, pady=(22, 26))
-        ctk.CTkLabel(logo, text="◩", width=42, height=42, corner_radius=12, fg_color=ACCENT,
+        ctk.CTkLabel(logo, text=IC["logo"], width=42, height=42, corner_radius=12, fg_color=ACCENT,
                      font=self.F(20)).pack(side="left")
         t = ctk.CTkFrame(logo, fg_color="transparent")
         t.pack(side="left", padx=10)
@@ -693,7 +772,8 @@ class App(ctk.CTk):
         self.nav = ctk.CTkFrame(sb, fg_color="transparent")
         self.nav.pack(fill="x", padx=12)
         self.nav_btns = {}
-        for key, txt in (("conn", "📡   Bağlantı"), ("settings", "⚙   Ayarlar"), ("log", "📜   Kayıt")):
+        for key, txt in (("conn", f"{IC['conn']}   Bağlantı"), ("settings", f"{IC['settings']}   Ayarlar"),
+                         ("log", f"{IC['log']}   Kayıt")):
             b = ctk.CTkButton(self.nav, text=txt, anchor="w", height=42, corner_radius=10,
                               fg_color="transparent", hover_color=CARD2, text_color=TEXT,
                               font=self.F(14, "bold"), command=lambda k=key: (self.sfx.play("nav"), self.show_page(k)))
@@ -815,7 +895,7 @@ class App(ctk.CTk):
         self.empty.pack(fill="both", expand=True)
 
         row.columnconfigure((0, 1), weight=1, uniform="b")
-        self.button(row, "📷   QR ile yeni telefon eşleştir", self.open_qr, "primary", height=42).grid(
+        self.button(row, f"{IC['qr']}   QR ile yeni telefon eşleştir", self.open_qr, "primary", height=42).grid(
             row=0, column=0, sticky="ew", padx=(0, 6))
         self.button(row, "Bağlantıları kes", self.disconnect_all, "danger", height=42).grid(
             row=0, column=1, sticky="ew", padx=(6, 0))
@@ -918,7 +998,7 @@ class App(ctk.CTk):
         p = ctk.CTkFrame(parent, fg_color="transparent")
         f, body = self.card(p, "İşlem kaydı")
         f.pack(fill="both", expand=True)
-        self.txt = ctk.CTkTextbox(body, font=ctk.CTkFont("Consolas" if IS_WIN else "DejaVu Sans Mono", 12),
+        self.txt = ctk.CTkTextbox(body, font=ctk.CTkFont(MONO, 12),
                                   fg_color=CARD2, text_color=TEXT, corner_radius=10, border_width=0, wrap="word")
         self.txt.pack(fill="both", expand=True)
         self.txt.configure(state="disabled")
@@ -947,7 +1027,7 @@ class App(ctk.CTk):
                                          font=self.F(13), dropdown_font=self.F(13),
                                          command=lambda v: self.sfx.play("nav"))
         self.cb_device.grid(row=0, column=1, sticky="ew", pady=14)
-        self.switch(bar, "🔊 Sesi aktar", self.v_audio).grid(row=0, column=2, padx=16)
+        self.switch(bar, f"{IC['audio']} Sesi aktar", self.v_audio).grid(row=0, column=2, padx=16)
         self.v_audio.trace_add("write", lambda *_: self._live_change("Ses " + ("açıldı" if self.v_audio.get() else "kapatıldı")))
         self.btn_main = ctk.CTkButton(bar, text="▶   BAŞLAT", width=190, height=46, corner_radius=12,
                                       fg_color=GREEN, hover_color=GREEN_H, text_color="#ffffff",
@@ -1052,6 +1132,8 @@ class App(ctk.CTk):
     def set_theme(self, v):
         mode = "dark" if v == "Koyu" else "light"
         ctk.set_appearance_mode(mode)
+        for card in self.cards.values():
+            card._draw_icon()
         self.cfg["theme"] = v
         save_cfg(self.cfg)
 
@@ -1103,8 +1185,9 @@ class App(ctk.CTk):
             self.lbl_scrcpy.configure(text="✖ scrcpy yok — ilk sefer için aşağıdan indirin", text_color=RED)
 
     def download_scrcpy(self):
-        if not IS_WIN:
-            self.toast("Otomatik indirme sadece Windows'ta. Paket yöneticisinden scrcpy kurun.", "warn")
+        if not scrcpy_asset_pattern():
+            self.toast("Bu sistem için hazır scrcpy yok. Paket yöneticisinden kurun (Fedora: "
+                       "dnf copr enable zeno/scrcpy && dnf install scrcpy)", "warn")
             return
         if self.running:
             self.toast("Önce yansıtmayı durdurun", "warn")
@@ -1121,7 +1204,8 @@ class App(ctk.CTk):
             req = urllib.request.Request("https://api.github.com/repos/Genymobile/scrcpy/releases/latest", headers=hdr)
             with urllib.request.urlopen(req, timeout=30) as r:
                 rel = json.load(r)
-            asset = next(a for a in rel["assets"] if re.match(r"scrcpy-win64-.*\.zip$", a["name"]))
+            pat = scrcpy_asset_pattern()
+            asset = next(a for a in rel["assets"] if re.match(pat, a["name"]))
             total = asset["size"] or 1
             self.log(f"İndiriliyor: {asset['name']}")
             req = urllib.request.Request(asset["browser_download_url"], headers=hdr)
@@ -1139,8 +1223,19 @@ class App(ctk.CTk):
             if os.path.isdir(SCRCPY_DIR):
                 shutil.rmtree(SCRCPY_DIR, ignore_errors=True)
             os.makedirs(SCRCPY_DIR, exist_ok=True)
-            zipfile.ZipFile(io.BytesIO(bytes(data))).extractall(SCRCPY_DIR)
-            self.log(f"Kuruldu: {rel['tag_name']}")
+            if asset["name"].endswith(".zip"):
+                zipfile.ZipFile(io.BytesIO(bytes(data))).extractall(SCRCPY_DIR)
+            else:
+                with tarfile.open(fileobj=io.BytesIO(bytes(data)), mode="r:gz") as tf:
+                    try:
+                        tf.extractall(SCRCPY_DIR, filter="data")
+                    except TypeError:  # eski Python
+                        tf.extractall(SCRCPY_DIR)
+                for name in ("scrcpy", "adb"):      # çalıştırma izni
+                    path = find_tool(name)
+                    if path and path.startswith(SCRCPY_DIR):
+                        os.chmod(path, 0o755)
+            self.log(f"Kuruldu: {rel['tag_name']} → {SCRCPY_DIR}")
             self.ui(lambda: (self.sfx.play("success"), self.toast(f"scrcpy {rel['tag_name']} kuruldu", "ok"),
                              self.check_scrcpy()))
         except Exception as e:
@@ -1184,7 +1279,14 @@ class App(ctk.CTk):
             model = next((x.split(":", 1)[1] for x in parts if x.startswith("model:")), "").replace("_", " ")
             tag = "Wi-Fi" if (":" in serial or "_adb-tls" in serial) else "USB"
             label = f"{model or 'Android'}  ·  {tag}  ·  {serial}"
-            if state != "device":
+            if state == "no":     # "no permissions" — Linux'ta udev kuralı eksik
+                label += "  (USB izni yok)"
+                if not getattr(self, "_udev_warned", False):
+                    self._udev_warned = True
+                    self.log("USB izni yok. Fedora: sudo dnf install android-tools  → kabloyu çıkarıp takın.")
+                    self.ui(self.toast, "USB izni yok — 'sudo dnf install android-tools' kurup kabloyu "
+                                        "çıkarıp takın", "warn")
+            elif state != "device":
                 label += "  (telefonda izin ver!)" if state == "unauthorized" else f"  ({state})"
             else:
                 serials.append(serial)

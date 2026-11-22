@@ -4,12 +4,13 @@
 
 **Android telefonunun ekranını ve sesini bilgisayara yansıt.**
 Arkadaşına ekran göstermek, PC'den telefonu kullanmak ya da OBS ile oyun yayını açmak için.
+**Windows** ve **Linux** (Fedora, Ubuntu, Arch…) destekler.
 
 [![Son sürüm](https://img.shields.io/github/v/release/Mehmetsndl/yansit?label=s%C3%BCr%C3%BCm&color=7C6CFF)](https://github.com/Mehmetsndl/yansit/releases/latest)
 [![İndirme](https://img.shields.io/github/downloads/Mehmetsndl/yansit/total?label=indirme&color=22C55E)](https://github.com/Mehmetsndl/yansit/releases)
 [![Lisans](https://img.shields.io/github/license/Mehmetsndl/yansit?label=lisans)](LICENSE)
 
-### [⬇ Yansit.exe'yi indir](https://github.com/Mehmetsndl/yansit/releases/latest)
+### [⬇ İndir — Windows & Linux](https://github.com/Mehmetsndl/yansit/releases/latest)
 
 <img src="docs/baglanti-koyu.png" width="760" alt="Yansıt koyu tema">
 
@@ -17,7 +18,7 @@ Arkadaşına ekran göstermek, PC'den telefonu kullanmak ya da OBS ile oyun yay�
 
 ## Özellikler
 
-- **Kurulumsuz:** `Yansit.exe`'yi indir, çalıştır. Python gerekmez.
+- **Kolay kurulum:** Windows'ta `Yansit.exe`'yi indirip çalıştırman yeterli. Linux'ta tek komutla uygulama menüsüne eklenir. İkisinde de Python gerekmez.
 - **Kablosuz bağlantı:** Ağdaki telefonlar kendiliğinden listelenir, çift tıklayıp bağlanırsın.
 - **QR ile eşleştirme:** Telefonla QR kodu okut, eşleşme ve bağlantı kendiliğinden tamamlanır.
 - **USB desteği:** Kabloyla bağlanabilir, eski telefonlarda tek tıkla kablosuza geçebilirsin.
@@ -35,9 +36,35 @@ Arkadaşına ekran göstermek, PC'den telefonu kullanmak ya da OBS ile oyun yay�
 
 ## Kurulum
 
+### Windows
 1. [Son sürümden](https://github.com/Mehmetsndl/yansit/releases/latest) `Yansit.exe`'yi indir ve boş bir klasöre koy.
 2. Çalıştır. İlk açılışta sol alttaki **scrcpy indir** butonuna bas. Bu bir kere yapılır, yaklaşık 10 MB iner.
 3. Windows "bilinmeyen yayıncı" uyarısı verirse **Ek bilgi → Yine de çalıştır** de.
+
+### Linux (Fedora, Ubuntu, Arch…)
+[Son sürümden](https://github.com/Mehmetsndl/yansit/releases/latest) `Yansit-vX.Y.Z-linux-x86_64.tar.gz` dosyasını indir, sonra:
+```bash
+tar xzf Yansit-*-linux-x86_64.tar.gz
+cd Yansit-*-linux-x86_64
+./install.sh
+```
+Yansıt artık uygulama menüsünde. Terminalden `yansit` komutuyla da açılır. İlk açılışta sol alttaki **scrcpy indir** butonuna bas; adb de bu paketle birlikte gelir.
+
+**USB ile bağlanacaksan** (Fedora):
+```bash
+sudo dnf install android-tools
+```
+Bu paket USB izinlerini (udev kurallarını) da getirir. Kurduktan sonra kabloyu çıkarıp tak. Uygulamada telefonun yanında "USB izni yok" yazıyorsa sebebi budur.
+
+<details>
+<summary>Linux notları</summary>
+
+- **Kaldırmak için:** `./install.sh --kaldir`
+- Ayarlar `~/.config/yansit`, indirilen scrcpy `~/.local/share/yansit` klasöründe durur.
+- Sisteme kurulu scrcpy'yi kullanmak istersen (`dnf copr enable zeno/scrcpy && dnf install scrcpy`), uygulama onu da bulur.
+- **Ağdaki telefonlar listesi boşsa:** Fedora Workstation'ın varsayılan güvenlik duvarı mDNS'e izin verir. Fedora Server veya farklı bir bölge kullanıyorsan: `sudo firewall-cmd --permanent --add-service=mdns && sudo firewall-cmd --reload`
+- **OBS (Wayland):** Pencere Yakalama yerine **Ekran Yakalama (PipeWire)** kaynağını kullan ve açılan pencerede "Yansit" penceresini seç.
+</details>
 
 <details>
 <summary>Kaynak koddan çalıştırma</summary>
@@ -45,8 +72,9 @@ Arkadaşına ekran göstermek, PC'den telefonu kullanmak ya da OBS ile oyun yay�
 ```bash
 git clone https://github.com/Mehmetsndl/yansit
 cd yansit
-pip install -r requirements.txt
-python yansit.py
+./install.sh          # Linux: bağımlılıkları kurar, menüye ekler
+# ya da doğrudan:
+pip install -r requirements.txt && python3 yansit.py
 ```
 Windows'ta `Baslat.bat` aynı işi yapar. Kendi exe'ni oluşturmak için `ExeYap.bat` dosyasını kullan.
 </details>
@@ -115,7 +143,7 @@ Sürümler [Anlamsal Sürümleme](https://semver.org/lang/tr/) (`ANA.ARA.YAMA`) 
    git tag v3.1.0
    git push && git push --tags
    ```
-4. GitHub Actions `Yansit.exe` dosyasını derler ve sürüm notlarıyla birlikte bir **Release** yayınlar.
+4. GitHub Actions Windows (`Yansit.exe`) ve Linux (`.tar.gz`) paketlerini derler, sürüm notlarıyla birlikte bir **Release** yayınlar.
 
 ## Teşekkür
 

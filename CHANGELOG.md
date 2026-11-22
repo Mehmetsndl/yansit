@@ -6,6 +6,24 @@ sürüm numaraları [Anlamsal Sürümleme](https://semver.org/lang/tr/) kurallar
 
 ## [Yayınlanmamış]
 
+## [3.1.0] - 2026-11-22
+### Eklendi
+- **Linux desteği** (Fedora, Ubuntu, Arch ve diğerleri):
+  - Hazır derlenmiş Linux paketi (`Yansit-vX-linux-x86_64.tar.gz`) ve uygulama menüsüne ekleyen `install.sh`.
+  - Kaynak koddan kurulum: `install.sh` eksik paketleri (python3-tkinter) kurar, yalıtılmış Python ortamı hazırlar.
+  - scrcpy'nin Linux sürümü uygulama içinden tek tıkla indirilir (adb dahil).
+  - Ayarlar `~/.config/yansit`, indirilen scrcpy `~/.local/share/yansit` klasöründe (XDG standardı).
+  - Ses efektleri PipeWire (`pw-play`), PulseAudio veya ALSA ile çalınır.
+  - USB izni yoksa (udev) uyarı ve çözüm önerisi.
+- Uygulama simgesi (pencere, Windows exe ve Linux menüsü).
+
+### Düzeltildi
+- Linux'ta renkli emoji fontu kaynaklı olası Tk çökmesine karşı arayüzde düz simgeler kullanılıyor.
+- Linux'ta sistemde kurulu yazı tipi (Inter, Noto Sans, Cantarell…) otomatik seçiliyor.
+
+### Değişti
+- scrcpy 5.x ile uyumluluk doğrulandı.
+
 ## [3.0.0] - 2026-11-22
 ### Eklendi
 - Kenar çubuklu modern arayüz, koyu / açık tema seçimi.
@@ -41,5 +59,6 @@ sürüm numaraları [Anlamsal Sürümleme](https://semver.org/lang/tr/) kurallar
 - İlk sürüm: scrcpy tabanlı yansıtma, USB ve kablosuz hata ayıklama, OBS için hazır ayarlar,
   oyun sesi aktarımı, kopunca otomatik yeniden bağlanma.
 
-[Yayınlanmamış]: https://github.com/Mehmetsndl/yansit/compare/v3.0.0...HEAD
+[Yayınlanmamış]: https://github.com/Mehmetsndl/yansit/compare/v3.1.0...HEAD
+[3.1.0]: https://github.com/Mehmetsndl/yansit/releases/tag/v3.1.0
 [3.0.0]: https://github.com/Mehmetsndl/yansit/releases/tag/v3.0.0

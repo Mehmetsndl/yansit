@@ -1,4 +1,5 @@
-# Sürüm yayınlama: "vX.Y.Z" etiketi gönderilince Windows .exe derlenir ve GitHub Release oluşturulur.
+# Sürüm yayınlama: "vX.Y.Z" etiketi gönderilince (ya da GitHub'da sürüm yayınlanınca)
+# Windows .exe ve Linux paketi derlenir, GitHub Release'e eklenir.
 name: Sürüm yayınla
 
 on:
@@ -14,13 +15,69 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Bağımlılıkları kur
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller -r requirements.txt
+      - name: Yansit.exe derle
+        run: >
+          pyinstaller --noconfirm --onefile --windowed --collect-all customtkinter
+          --hidden-import segno --icon assets/yansit.ico --add-data "assets;assets"
+          --name Yansit yansit.py
+      - name: Paketle
+        shell: pwsh
+        run: |
+          $v = "${{ github.ref_name }}"
+          New-Item -ItemType Directory -Force pkg | Out-Null
+          Copy-Item dist/Yansit.exe, README.md, LICENSE, CHANGELOG.md pkg/
+          Compress-Archive -Path pkg/* -DestinationPath "Yansit-$v-windows.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            dist/Yansit.exe
+            Yansit-*-windows.zip
+
+  linux:
+    # Eski glibc ile derlenir → Fedora, Ubuntu, Arch vb. yeni dağıtımlarda çalışır
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Bağımlılıkları kur
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller -r requirements.txt
+      - name: Yansit (Linux) derle
+        run: >
+          pyinstaller --noconfirm --onefile --windowed --collect-all customtkinter
+          --hidden-import segno --add-data "assets:assets" --name Yansit yansit.py
+      - name: Paketle
+        run: |
+          d="Yansit-${GITHUB_REF_NAME}-linux-x86_64"
+          mkdir -p "$d/assets"
+          cp dist/Yansit install.sh README.md LICENSE CHANGELOG.md "$d/"
+          cp assets/yansit.png "$d/assets/"
+          chmod +x "$d/Yansit" "$d/install.sh"
+          tar czf "$d.tar.gz" "$d"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: Yansit-*-linux-x86_64.tar.gz
+
+  release:
+    needs: [windows, linux]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Sürüm numarasını doğrula
-        if: startsWith(github.ref, 'refs/tags/')
         shell: python
         run: |
           import re, os, sys
@@ -31,22 +88,10 @@ jobs:
               sys.exit(f"yansit.py içindeki __version__ ({ver}) etiketle ({tag}) aynı değil!")
           print("Sürüm:", ver)
 
-      - name: Bağımlılıkları kur
-        run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller -r requirements.txt
-
-      - name: Yansit.exe derle
-        run: pyinstaller --noconfirm --onefile --windowed --collect-all customtkinter --hidden-import segno --name Yansit yansit.py
-
-      - name: Paketle
-        shell: pwsh
-        run: |
-          $v = "${{ github.ref_name }}"
-          New-Item -ItemType Directory -Force pkg | Out-Null
-          Copy-Item dist/Yansit.exe pkg/
-          Copy-Item README.md, LICENSE, CHANGELOG.md pkg/
-          Compress-Archive -Path pkg/* -DestinationPath "Yansit-$v-windows.zip"
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
 
       - name: Sürüm notlarını CHANGELOG'dan çıkar
         shell: python
@@ -61,22 +106,20 @@ jobs:
                   f'<table><tr><td><img src="{raw}baglanti-acik.png" alt="Açık tema"></td>'
                   f'<td><img src="{raw}ayarlar-koyu.png" alt="Ayarlar"></td></tr></table>\n\n')
           body = imgs + body
-          body += "\n\n---\n**İndirme:** `Yansit.exe` dosyasını indirip çalıştırın (Python gerekmez)."
+          v = os.environ["GITHUB_REF_NAME"]
+          body += ("\n\n---\n### İndirme\n"
+                   "| Sistem | Dosya | Kurulum |\n|---|---|---|\n"
+                   "| **Windows** | `Yansit.exe` | İndir, çift tıkla (Python gerekmez) |\n"
+                   f"| **Linux** (Fedora, Ubuntu, Arch…) | `Yansit-{v}-linux-x86_64.tar.gz` | "
+                   "Arşivi aç → `./install.sh` (menüye ekler) |\n")
           open("notes.md", "w", encoding="utf-8").write(body)
 
-      - name: GitHub Release oluştur
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: GitHub Release oluştur / güncelle
         uses: softprops/action-gh-release@v2
         with:
           name: Yansıt ${{ github.ref_name }}
           body_path: notes.md
           files: |
-            dist/Yansit.exe
-            Yansit-${{ github.ref_name }}-windows.zip
-
-      - name: Derlemeyi sakla (elle çalıştırmada)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: Yansit-windows
-          path: dist/Yansit.exe
+            out/dist/Yansit.exe
+            out/Yansit-*-windows.zip
+            out/Yansit-*-linux-x86_64.tar.gz
