@@ -6,6 +6,27 @@ sürüm numaraları [Anlamsal Sürümleme](https://semver.org/lang/tr/) kurallar
 
 ## [Yayınlanmamış]
 
+## [3.2.0] - 2026-11-23
+### Eklendi
+- **Telefon kamerası** (Android 12+): kamera görüntüsünü monitörde canlı izleme.
+  - Arka / ön / harici kamera, 720p – 4K çözünürlük, 30 / 60 / 120 FPS (yüksek hızlı mod).
+  - Fener (flaş), ön kamerada önizlemeyi aynalama (kayıt her zaman doğru yönde).
+  - Telefon mikrofonundan ses.
+  - Başlıkta **Kaynak: Ekran / Kamera** seçici; çalışırken değiştirilebilir.
+- **Video kaydı** (ekran ve kamera): alt çubukta "Kaydet" anahtarı, kayıt süresi göstergesi.
+  - Kayıt klasörü seçimi (varsayılan: Videolar/Yansıt), mp4 veya mkv biçimi.
+  - Kaydederken monitörde gösterme ya da arka planda pencere açmadan kaydetme.
+  - Durdururken kayıt dosyası düzgün kapatılır (mp4 bozulmaz); bittiğinde bildirim.
+- **Sanal webcam (Linux):** kamerayı v4l2loopback ile OBS, Zoom, Discord gibi uygulamalarda webcam olarak kullanma.
+
+### Düzeltildi
+- **"Oyun yayını" hazır ayarlarıyla yansıtma başlamıyordu:** PC'den kontrol kapalıyken "Telefon uykuya geçmesin"
+  seçeneği scrcpy tarafından reddediliyordu. Bu seçenekler artık sadece kontrol açıkken gönderiliyor.
+- Alt çubuktaki cihaz adları kısaltıldı (model ve bağlantı türü).
+
+### Değişti
+- "Kayıt" (işlem kaydı) sayfasının adı **Günlük** oldu; "Kayıt" artık video kaydı demek.
+
 ## [3.1.0] - 2026-11-22
 ### Eklendi
 - **Linux desteği** (Fedora, Ubuntu, Arch ve diğerleri):
@@ -59,6 +80,7 @@ sürüm numaraları [Anlamsal Sürümleme](https://semver.org/lang/tr/) kurallar
 - İlk sürüm: scrcpy tabanlı yansıtma, USB ve kablosuz hata ayıklama, OBS için hazır ayarlar,
   oyun sesi aktarımı, kopunca otomatik yeniden bağlanma.
 
-[Yayınlanmamış]: https://github.com/Mehmetsndl/yansit/compare/v3.1.0...HEAD
+[Yayınlanmamış]: https://github.com/Mehmetsndl/yansit/compare/v3.2.0...HEAD
+[3.2.0]: https://github.com/Mehmetsndl/yansit/releases/tag/v3.2.0
 [3.1.0]: https://github.com/Mehmetsndl/yansit/releases/tag/v3.1.0
 [3.0.0]: https://github.com/Mehmetsndl/yansit/releases/tag/v3.0.0

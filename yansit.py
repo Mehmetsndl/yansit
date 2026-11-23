@@ -46,7 +46,7 @@ except ImportError:  # ilk çalıştırmada otomatik kur
         sys.exit("customtkinter kurulamadı. Elle kurun:  python3 -m pip install --user customtkinter segno")
 
 APP_NAME = "Yansıt"
-__version__ = "3.1.0"
+__version__ = "3.2.0"
 VERSION = __version__
 GITHUB_REPO = "Mehmetsndl/yansit"
 RELEASES_URL = f"https://github.com/{GITHUB_REPO}/releases/latest"
@@ -80,9 +80,40 @@ MONO = "Consolas" if IS_WIN else "DejaVu Sans Mono"
 
 # Linux'ta Tk renkli emoji fontlarıyla (Noto Color Emoji) çökebilir → düz simgeler kullan
 if IS_WIN:
-    IC = {"logo": "◩", "conn": "📡", "settings": "⚙", "log": "📜", "phone": "📱", "qr": "📷", "audio": "🔊"}
+    IC = {"logo": "◩", "conn": "📡", "settings": "⚙", "log": "📜", "phone": "📱", "qr": "🔳", "audio": "🔊",
+          "camera": "🎥", "rec": "⏺"}
 else:
-    IC = {"logo": "◩", "conn": "⇄", "settings": "◎", "log": "☰", "phone": "▯", "qr": "▦", "audio": "♪"}
+    IC = {"logo": "◩", "conn": "⇄", "settings": "◎", "log": "☰", "phone": "▯", "qr": "▦", "audio": "♪",
+          "camera": "◉", "rec": "●"}
+
+
+def default_video_dir():
+    """Kayıtların varsayılan klasörü: Videolar/Yansıt (Türkçe Fedora'da ~/Videolar)."""
+    base = None
+    if IS_WIN:
+        base = os.path.join(os.environ.get("USERPROFILE", os.path.expanduser("~")), "Videos")
+    elif shutil.which("xdg-user-dir"):
+        try:
+            out = subprocess.run(["xdg-user-dir", "VIDEOS"], capture_output=True, text=True, timeout=5).stdout.strip()
+            if out and out != os.path.expanduser("~"):
+                base = out
+        except Exception:
+            pass
+    if not base:
+        base = os.path.expanduser("~/Movies" if IS_MAC else "~/Videos")
+    return os.path.join(base, "Yansıt")
+
+
+def open_folder(path):
+    try:
+        os.makedirs(path, exist_ok=True)
+        if IS_WIN:
+            os.startfile(path)  # noqa
+        else:
+            subprocess.Popen(["open" if IS_MAC else "xdg-open", path],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
 
 
 def scrcpy_asset_pattern():
@@ -134,6 +165,12 @@ DEFAULTS = {
     "window_title": "Yansit",
     "wifi_addr": "", "pair_addr": "", "device": "",
     "known": {},
+    # kamera
+    "source": "Ekran", "cam_facing": "Arka", "cam_res": "1080p", "cam_fps": "30",
+    "cam_torch": False, "cam_mirror": True,
+    # kayıt
+    "record": False, "record_dir": "", "record_format": "mp4", "preview": True,
+    "v4l2": False, "v4l2_dev": "/dev/video10",
 }
 
 
@@ -712,7 +749,7 @@ class App(ctk.CTk):
                 cmd()
         return ctk.CTkSwitch(parent, text=text, variable=var, command=wrapped, progress_color=ACCENT,
                              button_color=("#ffffff", "#E8EAF2"), button_hover_color=("#f0f0f0", "#ffffff"),
-                             fg_color=BORDER, text_color=TEXT, font=self.F(13), switch_width=42, switch_height=22)
+                             fg_color=("#BFC4D3", BORDER[1]), text_color=TEXT, font=self.F(13), switch_width=42, switch_height=22)
 
     def segmented(self, parent, values, var, cmd=None):
         def wrapped(v):
@@ -748,6 +785,17 @@ class App(ctk.CTk):
         self.v_screen_off = tk.BooleanVar(value=c["screen_off"])
         self.v_reconn = tk.BooleanVar(value=c["auto_reconnect"])
         self.v_device = tk.StringVar(value="Cihaz yok")
+        self.v_source = tk.StringVar(value=c["source"] if c["source"] in ("Ekran", "Kamera") else "Ekran")
+        self.v_facing = tk.StringVar(value=c["cam_facing"])
+        self.v_cam_res = tk.StringVar(value=c["cam_res"])
+        self.v_cam_fps = tk.StringVar(value=c["cam_fps"])
+        self.v_torch = tk.BooleanVar(value=c["cam_torch"])
+        self.v_mirror = tk.BooleanVar(value=c["cam_mirror"])
+        self.v_record = tk.BooleanVar(value=c["record"])
+        self.v_rec_fmt = tk.StringVar(value=c["record_format"])
+        self.v_preview = tk.BooleanVar(value=c["preview"])
+        self.v_v4l2 = tk.BooleanVar(value=c["v4l2"])
+        self.current_record = None
 
     # ================= kenar çubuğu
     def _build_sidebar(self):
@@ -772,8 +820,8 @@ class App(ctk.CTk):
         self.nav = ctk.CTkFrame(sb, fg_color="transparent")
         self.nav.pack(fill="x", padx=12)
         self.nav_btns = {}
-        for key, txt in (("conn", f"{IC['conn']}   Bağlantı"), ("settings", f"{IC['settings']}   Ayarlar"),
-                         ("log", f"{IC['log']}   Kayıt")):
+        for key, txt in (("conn", f"{IC['conn']}   Bağlantı"), ("camera", f"{IC['camera']}   Kamera & Kayıt"),
+                         ("settings", f"{IC['settings']}   Ayarlar"), ("log", f"{IC['log']}   Günlük")):
             b = ctk.CTkButton(self.nav, text=txt, anchor="w", height=42, corner_radius=10,
                               fg_color="transparent", hover_color=CARD2, text_color=TEXT,
                               font=self.F(14, "bold"), command=lambda k=key: (self.sfx.play("nav"), self.show_page(k)))
@@ -831,11 +879,21 @@ class App(ctk.CTk):
         self.h_title.grid(row=0, column=0, sticky="w")
         self.h_sub = ctk.CTkLabel(head, text="", font=self.F(13), text_color=MUTED, anchor="w")
         self.h_sub.grid(row=1, column=0, sticky="w")
+        # ne yansıtılsın: telefon ekranı mı, kamerası mı?
+        mode = ctk.CTkFrame(head, fg_color="transparent")
+        mode.grid(row=0, column=1, rowspan=2, sticky="e")
+        ctk.CTkLabel(mode, text="KAYNAK", font=self.F(11, "bold"), text_color=MUTED).pack(anchor="e")
+        self.seg_source = self.segmented(mode, [f"{IC['phone']}  Ekran", f"{IC['camera']}  Kamera"],
+                                         tk.StringVar(), self._source_changed)
+        self.seg_source.configure(width=230)
+        self.seg_source.pack(pady=(2, 0))
+        self.seg_source.set(f"{IC['phone']}  Ekran" if self.v_source.get() == "Ekran" else f"{IC['camera']}  Kamera")
 
         self.container = ctk.CTkFrame(m, fg_color="transparent")
         self.container.grid(row=1, column=0, sticky="nsew")
         self.pages = {
             "conn": self._build_conn_page(self.container),
+            "camera": self._build_camera_page(self.container),
             "settings": self._build_settings_page(self.container),
             "log": self._build_log_page(self.container),
         }
@@ -843,8 +901,9 @@ class App(ctk.CTk):
 
     PAGE_INFO = {
         "conn": ("Bağlantı", "Telefonunu kablosuz ya da USB ile bağla"),
+        "camera": ("Kamera & Kayıt", "Telefon kamerasını monitörde izle, ekranı ya da kamerayı kaydet"),
         "settings": ("Ayarlar", "Görüntü, ses ve pencere tercihleri"),
-        "log": ("Kayıt", "Ayrıntılı işlem kaydı — sorun olursa buradakini gönder"),
+        "log": ("Günlük", "Ayrıntılı işlem kaydı — sorun olursa buradakini gönder"),
     }
 
     def show_page(self, key, animate=True):
@@ -923,6 +982,99 @@ class App(ctk.CTk):
         self.button(body, "Bağlan", lambda: self.connect_addr(self.e_wifi.get().strip()), "primary").grid(
             row=2, column=1, sticky="ew", padx=(5, 0), pady=(8, 0))
         return p
+
+    # ---------- Kamera & Kayıt sayfası
+    CAM_RES = {"720p": "1280", "1080p": "1920", "1440p": "2560", "4K": "3840"}
+    CAM_FACING = {"Arka": "back", "Ön": "front", "Harici": "external"}
+
+    def _build_camera_page(self, parent):
+        p = ctk.CTkScrollableFrame(parent, fg_color="transparent", scrollbar_button_color=BORDER)
+        p.columnconfigure((0, 1), weight=1, uniform="cam")
+
+        f, body = self.card(p, "Telefon kamerası", "Kamerayı monitörde canlı izle (Android 12+)")
+        f.grid(row=0, column=0, sticky="nsew", padx=(0, 7))
+        self.lbl_cam_hint = ctk.CTkLabel(f.head, text="", font=self.F(11, "bold"), corner_radius=8, height=22)
+        self.lbl_cam_hint.pack(side="right")
+        for lbl, var, vals in (("Kamera", self.v_facing, list(self.CAM_FACING)),
+                               ("Çözünürlük", self.v_cam_res, list(self.CAM_RES)),
+                               ("Kare hızı (FPS)", self.v_cam_fps, ["30", "60", "120"])):
+            ctk.CTkLabel(body, text=lbl, font=self.F(12, "bold"), text_color=MUTED, anchor="w").pack(fill="x")
+            self.segmented(body, vals, var, lambda v: self._live_change("Kamera ayarı değişti")).pack(
+                fill="x", pady=(4, 12))
+        ctk.CTkLabel(body, text="120 FPS yüksek hızlı mod kullanır; her telefon desteklemez.",
+                     font=self.F(11), text_color=MUTED, anchor="w").pack(fill="x")
+
+        f, body = self.card(p, "Kamera seçenekleri")
+        f.grid(row=0, column=1, sticky="nsew", padx=(7, 0))
+        self.switch(body, "Fener (flaş) açık başlasın", self.v_torch,
+                    lambda: self._live_change("Fener ayarı değişti")).pack(anchor="w")
+        self.switch(body, "Ön kamerada önizlemeyi aynala", self.v_mirror,
+                    lambda: self._live_change("Ayna ayarı değişti")).pack(anchor="w", pady=(10, 0))
+        ctk.CTkLabel(body, text="Ayna sadece monitördeki görüntüyü çevirir;\nkayıt her zaman doğru yönde olur.",
+                     font=self.F(11), text_color=MUTED, justify="left", anchor="w").pack(fill="x", pady=(4, 10))
+        ctk.CTkLabel(body, text=f"Ses: alttaki \"{IC['audio']} Ses\" anahtarı açıksa\ntelefonun mikrofonu kullanılır.",
+                     font=self.F(11), text_color=MUTED, justify="left", anchor="w").pack(fill="x")
+
+        f, body = self.card(p, "Video kaydı", "Ekran ya da kamera, alttaki \"Kaydet\" anahtarı açıkken dosyaya kaydedilir")
+        f.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(14, 0))
+        body.columnconfigure(0, weight=1)
+        ctk.CTkLabel(body, text="Kayıt klasörü", font=self.F(12, "bold"), text_color=MUTED, anchor="w").grid(
+            row=0, column=0, columnspan=3, sticky="w")
+        self.e_recdir = self.entry(body, default_video_dir())
+        self.e_recdir.insert(0, self.cfg["record_dir"] or default_video_dir())
+        self.e_recdir.grid(row=1, column=0, sticky="ew", pady=(4, 0))
+        self.button(body, "Seç…", self._pick_record_dir, width=90).grid(row=1, column=1, padx=8, pady=(4, 0))
+        self.button(body, "Klasörü aç", lambda: open_folder(self.e_recdir.get().strip() or default_video_dir()),
+                    width=110).grid(row=1, column=2, pady=(4, 0))
+        row = ctk.CTkFrame(body, fg_color="transparent")
+        row.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(12, 0))
+        row.columnconfigure((0, 1), weight=1, uniform="rec")
+        left = ctk.CTkFrame(row, fg_color="transparent")
+        left.grid(row=0, column=0, sticky="w")
+        ctk.CTkLabel(left, text="Biçim", font=self.F(12, "bold"), text_color=MUTED).pack(side="left", padx=(0, 10))
+        self.segmented(left, ["mp4", "mkv"], self.v_rec_fmt).pack(side="left")
+        self.switch(row, "Kaydederken monitörde göster", self.v_preview).grid(row=0, column=1, sticky="w")
+        ctk.CTkLabel(body, text="mp4 her yerde açılır. mkv ise elektrik/bağlantı kesilse bile bozulmaz.",
+                     font=self.F(11), text_color=MUTED, anchor="w").grid(row=3, column=0, columnspan=3,
+                                                                       sticky="w", pady=(8, 0))
+        self.e_v4l2 = None
+        if IS_LINUX:
+            f, body = self.card(p, "Sanal webcam (Linux)",
+                                "Kamerayı OBS, Zoom, Discord vb. uygulamalarda webcam olarak kullan")
+            f.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(14, 0))
+            body.columnconfigure(1, weight=1)
+            self.switch(body, "Sanal webcam'e gönder", self.v_v4l2).grid(row=0, column=0, sticky="w", padx=(0, 14))
+            self.e_v4l2 = self.entry(body, "/dev/video10")
+            self.e_v4l2.insert(0, self.cfg["v4l2_dev"])
+            self.e_v4l2.grid(row=0, column=1, sticky="ew")
+            ctk.CTkLabel(body, justify="left", anchor="w", font=self.F(11), text_color=MUTED, text=(
+                "Bir kez kurulum (Fedora, RPM Fusion gerekir):\n"
+                "  sudo dnf install akmod-v4l2loopback\n"
+                "  sudo modprobe v4l2loopback video_nr=10 card_label=Yansit exclusive_caps=1"
+            )).grid(row=1, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        self._update_cam_hint()
+        return p
+
+    def _pick_record_dir(self):
+        from tkinter import filedialog
+        d = filedialog.askdirectory(initialdir=self.e_recdir.get().strip() or default_video_dir(),
+                                    title="Kayıt klasörünü seç")
+        if d:
+            self.e_recdir.delete(0, "end")
+            self.e_recdir.insert(0, d)
+            self.collect_cfg()
+
+    def _update_cam_hint(self):
+        on = self.v_source.get() == "Kamera"
+        self.lbl_cam_hint.configure(text="  ● KULLANILIYOR  " if on else "  Kaynak: Ekran  ",
+                                    fg_color=PILL_OK if on else CARD2, text_color=GREEN if on else MUTED)
+
+    def _source_changed(self, value):
+        self.v_source.set("Kamera" if "Kamera" in value else "Ekran")
+        self._update_cam_hint()
+        if self.v_source.get() == "Kamera" and self.page not in ("camera",):
+            self.toast("Kaynak: telefon kamerası — ayarlar 'Kamera & Kayıt' sayfasında", "info")
+        self._live_change(f"Kaynak: {self.v_source.get()}")
 
     # ---------- Ayarlar sayfası
     def _build_settings_page(self, parent):
@@ -1014,10 +1166,10 @@ class App(ctk.CTk):
         bar.grid(row=2, column=0, sticky="ew", pady=(14, 0))
         bar.columnconfigure(1, weight=1)
         st = ctk.CTkFrame(bar, fg_color="transparent", width=150)
-        st.grid(row=0, column=0, padx=(18, 10), pady=14, sticky="w")
+        st.grid(row=0, column=0, padx=(16, 8), pady=14, sticky="w")
         self.dot = tk.Canvas(st, width=14, height=14, highlightthickness=0, bg=mc(CARD))
         self.dot.pack(side="left")
-        self.lbl_state = ctk.CTkLabel(st, text="Hazır", font=self.F(13, "bold"), text_color=TEXT, width=120,
+        self.lbl_state = ctk.CTkLabel(st, text="Hazır", font=self.F(13, "bold"), text_color=TEXT, width=112,
                                       anchor="w")
         self.lbl_state.pack(side="left", padx=(8, 0))
 
@@ -1027,12 +1179,16 @@ class App(ctk.CTk):
                                          font=self.F(13), dropdown_font=self.F(13),
                                          command=lambda v: self.sfx.play("nav"))
         self.cb_device.grid(row=0, column=1, sticky="ew", pady=14)
-        self.switch(bar, f"{IC['audio']} Sesi aktar", self.v_audio).grid(row=0, column=2, padx=16)
+        self.switch(bar, f"{IC['audio']} Ses", self.v_audio).grid(row=0, column=2, padx=(12, 4))
         self.v_audio.trace_add("write", lambda *_: self._live_change("Ses " + ("açıldı" if self.v_audio.get() else "kapatıldı")))
-        self.btn_main = ctk.CTkButton(bar, text="▶   BAŞLAT", width=190, height=46, corner_radius=12,
+        sw = self.switch(bar, f"{IC['rec']} Kaydet", self.v_record)
+        sw.configure(progress_color=RED)
+        sw.grid(row=0, column=3, padx=(4, 12))
+        self.v_record.trace_add("write", lambda *_: self._live_change("Kayıt " + ("açıldı" if self.v_record.get() else "kapatıldı")))
+        self.btn_main = ctk.CTkButton(bar, text="▶   BAŞLAT", width=150, height=46, corner_radius=12,
                                       fg_color=GREEN, hover_color=GREEN_H, text_color="#ffffff",
                                       font=self.F(15, "bold"), command=self.toggle_run)
-        self.btn_main.grid(row=0, column=3, padx=(0, 14), pady=12)
+        self.btn_main.grid(row=0, column=4, padx=(0, 14), pady=12)
 
     # ================= sürekli animasyonlar (durum noktası, radar, süre)
     def _tick(self):
@@ -1046,7 +1202,8 @@ class App(ctk.CTk):
                 self.dot.create_oval(7 - r, 7 - r, 7 + r, 7 + r, fill=lerp_color(RED, CARD, .65 * k), outline="")
                 self.dot.create_oval(3, 3, 11, 11, fill=mc(RED), outline="")
                 el = int(time.time() - self.started_at)
-                self.lbl_state.configure(text=f"Canlı  {el // 3600:02d}:{el % 3600 // 60:02d}:{el % 60:02d}")
+                word = "Kayıt" if self.current_record else "Canlı"
+                self.lbl_state.configure(text=f"{word}  {el // 3600:02d}:{el % 3600 // 60:02d}:{el % 60:02d}")
             else:
                 self.dot.create_oval(3, 3, 11, 11, fill=mc(GREEN if self.connected else MUTED), outline="")
             if self.empty.winfo_ismapped():
@@ -1240,7 +1397,7 @@ class App(ctk.CTk):
                              self.check_scrcpy()))
         except Exception as e:
             self.log(f"İndirme hatası: {e}")
-            self.ui(lambda: (self.sfx.play("error"), self.toast("İndirme başarısız. Kayıt sayfasına bakın.", "err")))
+            self.ui(lambda: (self.sfx.play("error"), self.toast("İndirme başarısız. Günlük sayfasına bakın.", "err")))
         finally:
             self.ui(lambda: (self.dl_bar.pack_forget(), self.btn_dl.configure(state="normal")))
 
@@ -1271,6 +1428,7 @@ class App(ctk.CTk):
     def _refresh_devices(self, adb):
         rc, out = run([adb, "devices", "-l"])
         devs, serials = [], []
+        dev_map, labels_seen = {}, set()
         for line in out.splitlines()[1:]:
             parts = line.split()
             if len(parts) < 2:
@@ -1278,7 +1436,10 @@ class App(ctk.CTk):
             serial, state = parts[0], parts[1]
             model = next((x.split(":", 1)[1] for x in parts if x.startswith("model:")), "").replace("_", " ")
             tag = "Wi-Fi" if (":" in serial or "_adb-tls" in serial) else "USB"
-            label = f"{model or 'Android'}  ·  {tag}  ·  {serial}"
+            label = f"{model or 'Android'} · {tag}"
+            if label in labels_seen:                    # aynı model iki kez → seri sonunu ekle
+                label = f"{model or 'Android'} · {tag} …{serial[-4:]}"
+            labels_seen.add(label)
             if state == "no":     # "no permissions" — Linux'ta udev kuralı eksik
                 label += "  (USB izni yok)"
                 if not getattr(self, "_udev_warned", False):
@@ -1290,17 +1451,20 @@ class App(ctk.CTk):
                 label += "  (telefonda izin ver!)" if state == "unauthorized" else f"  ({state})"
             else:
                 serials.append(serial)
+                dev_map[label] = serial      # sadece kullanılabilir cihazlar seçilebilir
             devs.append(label)
         self.connected = serials
 
         def upd():
-            self.cb_device.configure(values=devs or ["Cihaz yok"])
             cur = self.selected_serial()
-            if cur and any(d.endswith(cur) or f"· {cur}" in d for d in devs):
-                return
-            prev = self.cfg.get("device", "")
-            pick = next((d for d in devs if f"· {prev}" in d), devs[0] if devs else "Cihaz yok")
-            self.v_device.set(pick)
+            self.dev_map = dev_map
+            self.cb_device.configure(values=devs or ["Cihaz yok"])
+            by_serial = {v: k for k, v in dev_map.items()}
+            for want in (cur, self.cfg.get("device", "")):
+                if want in by_serial:
+                    self.v_device.set(by_serial[want])
+                    return
+            self.v_device.set(devs[0] if devs else "Cihaz yok")
         self.ui(upd)
 
     def _refresh_network(self, adb):
@@ -1363,8 +1527,8 @@ class App(ctk.CTk):
         elif state == "connected":
             ip = addr.split(":")[0]
             serial = next((s for s in self.connected if s == addr or s.startswith(name) or s.startswith(ip + ":")), "")
-            for v in self.cb_device.cget("values"):
-                if serial and v.endswith(serial):
+            for v, ser in getattr(self, "dev_map", {}).items():
+                if serial and ser == serial:
                     self.v_device.set(v)
                     self.toast("Cihaz seçildi — Başlat'a basabilirsin", "ok")
         else:
@@ -1460,7 +1624,7 @@ class App(ctk.CTk):
         v = self.v_device.get().strip()
         if not v or v == "Cihaz yok":
             return ""
-        return v.split("·")[-1].split("(")[0].strip()
+        return getattr(self, "dev_map", {}).get(v, "")
 
     # ================= ayarlar
     def _update_br(self):
@@ -1497,17 +1661,56 @@ class App(ctk.CTk):
             "wifi_addr": self.e_wifi.get().strip(), "pair_addr": self.e_pair.get().strip(),
             "device": self.selected_serial() or self.cfg.get("device", ""),
             "theme": self.v_theme.get(), "sfx": self.v_sfx.get(),
+            "source": self.v_source.get(), "cam_facing": self.v_facing.get(), "cam_res": self.v_cam_res.get(),
+            "cam_fps": self.v_cam_fps.get(), "cam_torch": self.v_torch.get(), "cam_mirror": self.v_mirror.get(),
+            "record": self.v_record.get(), "record_format": self.v_rec_fmt.get(), "preview": self.v_preview.get(),
+            "record_dir": self.e_recdir.get().strip() or default_video_dir(),
+            "v4l2": self.v_v4l2.get(),
+            "v4l2_dev": (self.e_v4l2.get().strip() if self.e_v4l2 else self.cfg.get("v4l2_dev")) or "/dev/video10",
         })
         save_cfg(self.cfg)
 
     # ---- ses modu: 0=telefonda da çal (playback+dup), 1=tüm ses (output), 2=output+AAC, 3=sessiz
     def build_cmd(self, audio_level):
         c = self.cfg
+        cam = c["source"] == "Kamera"
         cmd = [find_tool("scrcpy"), "--window-title", c["window_title"], "--serial", c["device"]]
-        if c["size"].isdigit():
-            cmd += ["--max-size", c["size"]]
-        cmd += ["--video-bit-rate", f"{c['bitrate']}M", "--max-fps", c["fps"], "--video-codec", c["codec"]]
-        if audio_level == 0:
+        if cam:
+            cmd += ["--video-source=camera", f"--camera-facing={self.CAM_FACING.get(c['cam_facing'], 'back')}",
+                    "--max-size", self.CAM_RES.get(c["cam_res"], "1920"), f"--camera-fps={c['cam_fps']}"]
+            if c["cam_fps"] == "120":
+                cmd.append("--camera-high-speed")
+            if c["cam_torch"]:
+                cmd.append("--camera-torch")
+            if c["cam_mirror"] and c["cam_facing"] == "Ön" and (c["preview"] or not c["record"]):
+                cmd.append("--display-orientation=flip0")   # sadece önizleme; kayıt normal
+            cam_br = {"720p": 8, "1080p": 16, "1440p": 24, "4K": 40}.get(c["cam_res"], 16)
+            cmd += ["--video-bit-rate", f"{max(int(c['bitrate']), cam_br)}M", "--video-codec", c["codec"]]
+        else:
+            if c["size"].isdigit():
+                cmd += ["--max-size", c["size"]]
+            cmd += ["--video-bit-rate", f"{c['bitrate']}M", "--max-fps", c["fps"], "--video-codec", c["codec"]]
+        # kayıt / sanal webcam / önizleme
+        self.current_record = None
+        if c["record"]:
+            fmt = c["record_format"]
+            if IS_WIN and not c["preview"]:
+                fmt = "mkv"   # pencere yoksa kibarca kapatılamaz → bozulmayan mkv
+            folder = c["record_dir"] or default_video_dir()
+            try:
+                os.makedirs(folder, exist_ok=True)
+            except OSError as e:
+                self.log(f"Kayıt klasörü oluşturulamadı: {e}")
+            name = f"Yansit_{'Kamera' if cam else 'Ekran'}_{time.strftime('%Y-%m-%d_%H-%M-%S')}.{fmt}"
+            self.current_record = os.path.join(folder, name)
+            cmd += ["--record", self.current_record]
+        if IS_LINUX and c["v4l2"]:
+            cmd.append(f"--v4l2-sink={c['v4l2_dev']}")
+        if not c["preview"] and (c["record"] or (IS_LINUX and c["v4l2"])):
+            cmd.append("--no-window")
+        if audio_level < 3 and cam:
+            cmd += ["--audio-source=mic", "--require-audio", "--audio-bit-rate", "160K"]
+        elif audio_level == 0:
             cmd += ["--audio-dup", "--require-audio", "--audio-bit-rate", "160K"]
         elif audio_level == 1:
             cmd += ["--audio-source=output", "--require-audio", "--audio-bit-rate", "160K"]
@@ -1515,12 +1718,14 @@ class App(ctk.CTk):
             cmd += ["--audio-source=output", "--audio-codec=aac", "--require-audio", "--audio-bit-rate", "160K"]
         else:
             cmd.append("--no-audio")
-        if c["stay_awake"]:
-            cmd.append("--stay-awake")
-        if c["no_control"]:
-            cmd.append("--no-control")
-        elif c["screen_off"]:
-            cmd.append("--turn-screen-off")
+        # Not: scrcpy, kontrol kapalıyken --stay-awake ve --turn-screen-off kabul etmez
+        if cam or c["no_control"]:
+            cmd.append("--no-control")      # kamera/izleme: pencereye tıklamak telefona dokunmasın
+        else:
+            if c["stay_awake"]:
+                cmd.append("--stay-awake")
+            if c["screen_off"]:
+                cmd.append("--turn-screen-off")
         if c["on_top"]:
             cmd.append("--always-on-top")
         if c["borderless"]:
@@ -1528,9 +1733,8 @@ class App(ctk.CTk):
         return cmd
 
     def _first_audio_level(self, adb, serial):
-        """Telefonun Android sürümüne göre en uygun ses yöntemini seç."""
-        if not self.cfg["audio"]:
-            return 3
+        """Telefonun Android sürümüne göre en uygun ses yöntemini seç.
+        None dönerse seçilen kaynak bu telefonda çalışmaz."""
         rc, sdk = run([adb, "-s", serial, "shell", "getprop", "ro.build.version.sdk"], 10)
         try:
             sdk = int(sdk.strip())
@@ -1538,6 +1742,14 @@ class App(ctk.CTk):
             sdk = 0
         rc, rel = run([adb, "-s", serial, "shell", "getprop", "ro.build.version.release"], 10)
         self.log(f"Telefon: Android {rel.strip()} (API {sdk})")
+        if self.cfg["source"] == "Kamera":
+            if sdk and sdk < 31:
+                self.ui(lambda: (self.sfx.play("error"), self.toast(
+                    f"Kamera için Android 12+ gerekir (telefon: Android {rel.strip()})", "err")))
+                return None
+            return 1 if self.cfg["audio"] else 3
+        if not self.cfg["audio"]:
+            return 3
         if sdk and sdk < 30:
             self.ui(self.toast, f"Android {rel.strip()}: ses aktarımı için Android 11+ gerekir. Sadece görüntü.", "warn")
             return 3
@@ -1589,6 +1801,9 @@ class App(ctk.CTk):
     def _run_loop(self):
         adb = find_tool("adb")
         level = self._first_audio_level(adb, self.cfg["device"]) if adb else (1 if self.cfg["audio"] else 3)
+        saved = []
+        if level is None:
+            self.user_stopped = True
         while not self.user_stopped:
             cmd = self.build_cmd(level)
             self.log("> scrcpy " + " ".join(cmd[1:]))
@@ -1608,24 +1823,31 @@ class App(ctk.CTk):
                 self.log(f"Başlatma hatası: {e}")
                 break
             rcode = self.proc.returncode
+            if self.current_record and os.path.exists(self.current_record) and os.path.getsize(self.current_record) > 0:
+                saved.append(self.current_record)
             if self.user_stopped:
                 break
             if self._restart:
                 self._restart = False
-                level = self._first_audio_level(adb, self.cfg["device"]) if adb else level
+                new = self._first_audio_level(adb, self.cfg["device"]) if adb else level
+                if new is None:
+                    break
+                level = new
                 continue
             if rcode == 0:
                 break  # kullanıcı scrcpy penceresini kapattı
             if audio_err and level < 3 and time.time() - t0 < 20:
-                level += 1
+                level = 3 if self.cfg["source"] == "Kamera" else level + 1
                 msg = {1: "Bu uygulama/telefon 'telefonda da çalsın' modunda sesi vermiyor → tüm-ses moduna geçiliyor",
                        2: "Ses kodlayıcı sorunu → AAC ile deneniyor",
                        3: "Bu telefondan ses alınamadı → sadece görüntü"}[level]
+                if self.cfg["source"] == "Kamera":
+                    msg = "Mikrofon sesi alınamadı → sadece görüntü"
                 self.log(msg)
                 self.ui(self.toast, msg, "warn")
                 continue
             if not self.cfg["auto_reconnect"]:
-                self.ui(lambda: (self.sfx.play("error"), self.toast("Yansıtma durdu. Kayıt sayfasına bakın.", "err")))
+                self.ui(lambda: (self.sfx.play("error"), self.toast("Yansıtma durdu. Günlük sayfasına bakın.", "err")))
                 break
             self.log("Bağlantı koptu, yeniden deneniyor... (Durdur ile iptal)")
             self.ui(self.toast, "Bağlantı koptu — yeniden bağlanılıyor", "warn")
@@ -1637,8 +1859,45 @@ class App(ctk.CTk):
                     break
                 time.sleep(0.1)
         self.proc = None
+        self.current_record = None
         self.ui(self._set_running, False)
         self.log("Yansıtma durdu.")
+        if saved:
+            for f in saved:
+                self.log(f"Kayıt kaydedildi: {f}")
+            last = saved[-1]
+            msg = (f"Kayıt kaydedildi: {os.path.basename(last)}" if len(saved) == 1
+                   else f"{len(saved)} kayıt dosyası kaydedildi")
+            self.ui(lambda: (self.sfx.play("success"), self.toast(msg + " — Klasörü aç: Kamera & Kayıt", "ok")))
+
+    def _graceful_stop(self, proc, wait=True):
+        """scrcpy'yi kibarca kapat ki kayıt dosyası (mp4) düzgün sonlansın; olmazsa zorla kapat."""
+        if not proc or proc.poll() is not None:
+            return
+        try:
+            if IS_WIN:
+                import ctypes
+                hwnd = ctypes.windll.user32.FindWindowW(None, self.cfg["window_title"])
+                if hwnd:
+                    ctypes.windll.user32.PostMessageW(hwnd, 0x0010, 0, 0)   # WM_CLOSE
+                else:
+                    proc.terminate()
+            else:
+                import signal
+                proc.send_signal(signal.SIGINT)
+        except Exception:
+            proc.terminate()
+
+        def waiter():
+            try:
+                proc.wait(timeout=8)
+            except subprocess.TimeoutExpired:
+                self.log("scrcpy yanıt vermedi, zorla kapatılıyor.")
+                proc.kill()
+        if wait:
+            waiter()
+        else:
+            threading.Thread(target=waiter, daemon=True).start()
 
     def _live_change(self, what):
         self.collect_cfg()
@@ -1646,14 +1905,14 @@ class App(ctk.CTk):
             self.log(f"{what} — yeni ayarla yeniden başlatılıyor...")
             self.toast(f"{what} — yeniden başlatılıyor", "info")
             self._restart = True
-            self.proc.terminate()
+            self._graceful_stop(self.proc, wait=False)
 
     def stop(self):
         if self.running:
             self.sfx.play("stop")
         self.user_stopped = True
         if self.proc and self.proc.poll() is None:
-            self.proc.terminate()
+            self._graceful_stop(self.proc, wait=False)
         else:
             self._set_running(False)
 
@@ -1661,7 +1920,7 @@ class App(ctk.CTk):
         self.collect_cfg()
         self.user_stopped = True
         if self.proc and self.proc.poll() is None:
-            self.proc.terminate()
+            self._graceful_stop(self.proc, wait=True)   # kayıt yarım kalmasın
         self.destroy()
 
 

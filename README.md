@@ -2,7 +2,7 @@
 
 # ◩ Yansıt
 
-**Android telefonunun ekranını ve sesini bilgisayara yansıt.**
+**Android telefonunun ekranını, kamerasını ve sesini bilgisayara yansıt — istersen kaydet.**
 Arkadaşına ekran göstermek, PC'den telefonu kullanmak ya da OBS ile oyun yayını açmak için.
 **Windows** ve **Linux** (Fedora, Ubuntu, Arch…) destekler.
 
@@ -23,6 +23,9 @@ Arkadaşına ekran göstermek, PC'den telefonu kullanmak ya da OBS ile oyun yay�
 - **QR ile eşleştirme:** Telefonla QR kodu okut, eşleşme ve bağlantı kendiliğinden tamamlanır.
 - **USB desteği:** Kabloyla bağlanabilir, eski telefonlarda tek tıkla kablosuza geçebilirsin.
 - **Ses aktarımı:** Telefonun sesi PC'den çıkar. Android sürümüne göre en uygun yöntem seçilir; bir yöntem çalışmazsa sıradakine geçilir.
+- **Telefon kamerası:** Arka, ön ya da harici kamerayı monitörde canlı izle; 4K'ya kadar çözünürlük, 120 FPS'e kadar kare hızı, fener ve mikrofon sesi desteklenir (Android 12+).
+- **Video kaydı:** Ekranı ya da kamerayı tek anahtarla mp4/mkv olarak kaydet. Kaydederken görüntüyü monitörde izleyebilir ya da pencere açmadan arka planda kaydedebilirsin.
+- **Sanal webcam (Linux):** Telefon kamerasını OBS, Zoom veya Discord'da webcam olarak kullanabilirsin.
 - **PC'den kontrol:** Fare ve klavyeyle telefonu kullanabilir, panoyu paylaşabilir, dosyayı pencereye sürükleyip telefona atabilirsin.
 - **OBS yayını için hazır ayarlar:** Kablolu, kablosuz ve zayıf Wi-Fi seçenekleri var. Pencere adı sabit kaldığı için OBS kaynağı her seferinde tekrar seçilmeden bulunur.
 - **Otomatik yeniden bağlanma:** Wi-Fi kısa süre koparsa yayın kendiliğinden geri gelir.
@@ -30,8 +33,11 @@ Arkadaşına ekran göstermek, PC'den telefonu kullanmak ya da OBS ile oyun yay�
 - **Güncelleme bildirimi:** Yeni sürüm çıkınca uygulama haber verir.
 
 <table><tr>
+<td><img src="docs/kamera-koyu.png" alt="Kamera ve kayıt"></td>
 <td><img src="docs/baglanti-acik.png" alt="Açık tema"></td>
+</tr><tr>
 <td><img src="docs/ayarlar-koyu.png" alt="Ayarlar"></td>
+<td><img src="docs/kamera-acik.png" alt="Kamera (açık tema)"></td>
 </tr></table>
 
 ## Kurulum
@@ -93,6 +99,23 @@ Windows'ta `Baslat.bat` aynı işi yapar. Kendi exe'ni oluşturmak için `ExeYap
 
 **Kablolu:** Kabloyu tak, telefonda **izin ver**'e bas, alttan cihazı seç, **Başlat**'a bas.
 
+### Kamera ve kayıt
+1. Sağ üstteki **Kaynak** seçicisinden **Kamera**'yı seç. Kamera, çözünürlük ve FPS ayarları **Kamera & Kayıt** sayfasında.
+2. Kaydetmek için alt çubuktaki **Kaydet** anahtarını aç ve **Başlat**'a bas. Görüntü monitörde açılır, aynı anda kaydedilir.
+3. **Durdur**'a bastığında dosya düzgünce kapatılır ve kayıt klasörüne (varsayılan: *Videolar/Yansıt*) kaydedilir. Klasörü **Kamera & Kayıt → Klasörü aç** ile açabilirsin.
+
+Kayıt ekran yansıtmada da çalışır: Kaynak **Ekran**'dayken **Kaydet**'i açarsan oyun ya da ekran kaydı alırsın.
+
+<details><summary><b>Linux: kamerayı webcam olarak kullanma (v4l2loopback)</b></summary>
+
+Fedora'da [RPM Fusion](https://rpmfusion.org/Configuration) etkinken bir kez:
+```bash
+sudo dnf install akmod-v4l2loopback
+sudo modprobe v4l2loopback video_nr=10 card_label=Yansit exclusive_caps=1
+```
+Ardından **Kamera & Kayıt → Sanal webcam'e gönder**'i aç. OBS, Zoom ve Discord'da kamera olarak **Yansit**'i seç.
+</details>
+
 ### PC'den kontrol kısayolları
 | Kısayol | İşlev | Kısayol | İşlev |
 |---|---|---|---|
@@ -128,7 +151,7 @@ Windows'ta `Baslat.bat` aynı işi yapar. Kendi exe'ni oluşturmak için `ExeYap
 **Zayıf Wi-Fi** hazır ayarını seç, 5 GHz Wi-Fi kullan ya da kabloyla bağlan.
 </details>
 
-Sorun yaşarsan **Kayıt** sayfasından kaydı kopyalayıp bir [issue](https://github.com/Mehmetsndl/yansit/issues) aç.
+Sorun yaşarsan **Günlük** sayfasından kaydı kopyalayıp bir [issue](https://github.com/Mehmetsndl/yansit/issues) aç.
 
 ## Sürüm takibi
 
